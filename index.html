@@ -18,6 +18,1182 @@
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+    // Teacher's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyATCpwB7sYdopjx7KP9g7WwMudwKzXhz8Q",
+      authDomain: "dkdkdkdk-dbf28.firebaseapp.com",
+      projectId: "dkdkdkdk-dbf28",
+      storageBucket: "dkdkdkdk-dbf28.firebasestorage.app",
+      messagingSenderId: "64834957977",
+      appId: "1:64834957977:web:02cf58b7dd9fe6536cbe08",
+      measurementId: "G-HMCHW32RHB"
+    };
+
+    const appId = 'dkdkdkdk-dbf28';
+
+    let db = null;
+    let auth = null;
+    let currentUser = null;
+
+    window.initFirebase = async function() {
+      try {
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+
+        onAuthStateChanged(auth, (user) => {
+          currentUser = user;
+          if (user) {
+            window.listenToRecords();
+          }
+        });
+      } catch (err) {
+        console.error("Firebase init error:", err);
+      }
+    };
+
+    // Save game record to Firestore
+    window.saveGameRecord = async function(recordData) {
+      if (!db || !currentUser) {
+        console.warn("Cloud storage not initialized or user not logged in.");
+        return;
+      }
+      try {
+        const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'game_records');
+        await addDoc(recordsRef, {
+          ...recordData,
+          userId: currentUser.uid,
+          createdAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error("Error saving game record:", err);
+      }
+    };
+
+    // Listen to real-time records for Teacher Dashboard & Leaderboard
+    window.listenToRecords = function() {
+      if (!db || !currentUser) return;
+      const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'game_records');
+      
+      onSnapshot(recordsRef, (snapshot) => {
+        const records = [];
+        snapshot.forEach((doc) => {
+          records.push({ id: doc.id, ...doc.data() });
+        });
+        window.allRecordsData = records;
+        window.updateTeacherDashboard(records);
+        window.updateLeaderboard(records);
+      }, (error) => {
+        console.error("Error fetching records:", error);
+      });
+    };
+
+    window.addEventListener('DOMContentLoaded', () => {
+      window.initFirebase();
+    });
+  </script>
+
+  <style>
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      touch-action: manipulation;
+      user-select: none;
+    }
+    
+    .font-jua {
+      font-family: 'Jua', sans-serif;
+    }
+
+    .card-shadow {
+      box-shadow: 0 12px 28px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Card Animations */
+    .swipe-left {
+      transform: translateX(-150%) rotate(-25deg) !important;
+      opacity: 0 !important;
+      transition: transform 0.35s ease-out, opacity 0.35s ease-out !important;
+    }
+    
+    .swipe-right {
+      transform: translateX(150%) rotate(25deg) !important;
+      opacity: 0 !important;
+      transition: transform 0.35s ease-out, opacity 0.35s ease-out !important;
+    }
+
+    .card-transition {
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    /* Pulse & Combo effect */
+    @keyframes comboPop {
+      0% { transform: scale(0.8); opacity: 0; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    
+    .animate-combo {
+      animation: comboPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    /* Floating feedback text */
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-50px) scale(1.3); }
+    }
+
+    .feedback-pop {
+      animation: floatUp 0.6s ease-out forwards;
+    }
+
+    /* Bounce idle for character */
+    @keyframes charBob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    .character-bob {
+      animation: charBob 2.5s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col justify-between overflow-hidden">
+
+  <!-- Top Navigation & Stats Bar -->
+  <header class="w-full bg-slate-800/90 backdrop-blur border-b border-slate-700 px-4 py-3">
+    <div class="max-w-3xl mx-auto flex justify-between items-center gap-2">
+      <div class="flex items-center space-x-2">
+        <span class="text-2xl">🐱</span>
+        <h1 class="text-xl font-black font-jua tracking-wide bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
+          동물 친구 수학 분류 60s
+        </h1>
+        <span id="roleBadge" class="hidden text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 border border-indigo-400/30">
+          교사 모드
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="leaderboardBtn" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-md font-jua">
+          <i class="fa-solid fa-trophy text-amber-900"></i> 실시간 랭킹
+        </button>
+        <button id="dashboardBtn" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md">
+          <i class="fa-solid fa-lock"></i> 교사 대시보드
+        </button>
+        <button id="editBtn" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-semibold text-slate-200 transition flex items-center gap-1.5 border border-slate-600">
+          <i class="fa-solid fa-gear"></i> 문제 수정
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Game Dashboard -->
+  <main class="flex-1 max-w-3xl w-full mx-auto p-4 flex flex-col justify-between items-center relative">
+
+    <!-- Score & Timer Bar -->
+    <div class="w-full grid grid-cols-3 gap-2 bg-slate-800/90 rounded-2xl p-3 border border-slate-700 shadow-lg mb-2">
+      <!-- Timer -->
+      <div class="flex flex-col items-center justify-center border-r border-slate-700">
+        <span class="text-xs text-slate-400 font-semibold mb-0.5">남은 시간</span>
+        <div class="flex items-baseline space-x-1">
+          <span id="timer" class="text-2xl font-black font-jua text-emerald-400">60</span>
+          <span class="text-xs text-slate-400">초</span>
+        </div>
+      </div>
+
+      <!-- Combo Indicator -->
+      <div class="flex flex-col items-center justify-center border-r border-slate-700">
+        <span class="text-xs text-slate-400 font-semibold mb-0.5">연속 성공</span>
+        <div class="flex items-baseline space-x-1">
+          <span id="combo" class="text-2xl font-black font-jua text-amber-400">0</span>
+          <span id="comboLabel" class="text-xs text-amber-400 font-bold hidden">COMBO!</span>
+        </div>
+      </div>
+
+      <!-- Current Score -->
+      <div class="flex flex-col items-center justify-center">
+        <span class="text-xs text-slate-400 font-semibold mb-0.5">현재 점수</span>
+        <span id="score" class="text-2xl font-black font-jua text-cyan-400">0</span>
+      </div>
+    </div>
+
+    <!-- Category Headers / Visual Zones -->
+    <div class="w-full grid grid-cols-2 gap-4 my-1">
+      <!-- Category A Zone Header -->
+      <div id="zoneA" class="bg-blue-950/40 border-2 border-blue-500/50 rounded-2xl p-3 text-center transition-all duration-200">
+        <span class="text-xs text-blue-400 font-bold block uppercase tracking-wider">◄ 왼쪽으로 [키보드 ◄]</span>
+        <h2 id="catAName" class="text-xl font-black font-jua text-blue-300 truncate">유리수</h2>
+      </div>
+
+      <!-- Category B Zone Header -->
+      <div id="zoneB" class="bg-rose-950/40 border-2 border-rose-500/50 rounded-xl p-3 text-center transition-all duration-200">
+        <span class="text-xs text-rose-400 font-bold block uppercase tracking-wider">[키보드 ►] 오른쪽으로 ►</span>
+        <h2 id="catBName" class="text-xl font-black font-jua text-rose-300 truncate">무리수</h2>
+      </div>
+    </div>
+
+    <!-- Card Display Arena -->
+    <div class="relative w-full flex-1 flex items-center justify-center min-h-[280px] my-1">
+      
+      <!-- Feedback Popup Animation container -->
+      <div id="feedbackContainer" class="absolute inset-0 pointer-events-none flex items-center justify-center z-40"></div>
+
+      <!-- Start Screen / Game Card Stack -->
+      <div id="cardContainer" class="relative w-full max-w-sm h-72 flex items-center justify-center">
+        
+        <!-- Start Overlay -->
+        <div id="startOverlay" class="absolute inset-0 bg-slate-800 border-2 border-slate-700 rounded-3xl flex flex-col items-center justify-center p-6 text-center z-30 shadow-2xl">
+          <div class="text-6xl mb-2 character-bob">🐻‍❄️</div>
+          <h2 class="text-2xl font-black font-jua mb-1 text-yellow-300">동물 친구들의 숫자 카드 분류!</h2>
+          <p class="text-xs text-slate-300 mb-4">동물 친구가 들고 나오는 숫자를 보고<br>유리수인지 무리수인지 빠르게 분류해 주세요!</p>
+
+          <!-- Student Name/ID Input -->
+          <div class="w-full max-w-xs mb-4 text-left">
+            <label class="block text-xs font-extrabold text-amber-300 mb-1">학생 이름 (또는 학번)</label>
+            <input type="text" id="studentNameInput" placeholder="예: 2학년 3반 홍길동" class="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-xl text-sm font-semibold text-white focus:outline-none focus:border-amber-400 text-center">
+          </div>
+
+          <button id="startBtn" class="w-full max-w-xs py-3.5 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 rounded-2xl font-black font-jua text-xl text-slate-900 shadow-lg transform active:scale-95 transition">
+            게임 시작하기 🚀
+          </button>
+        </div>
+
+        <!-- Dynamic Game Card with Animal Holding It -->
+        <div id="gameCard" class="hidden absolute inset-0 flex flex-col items-center justify-end card-transition z-10 select-none">
+          
+          <!-- SVG Animal Character Container -->
+          <div id="animalHolder" class="relative w-full h-full flex flex-col items-center justify-center">
+            
+            <!-- Animal Character Avatar Head/Body -->
+            <div id="animalAvatar" class="text-7xl mb-[-20px] z-10 filter drop-shadow-lg character-bob transition-transform duration-200">
+              🐶
+            </div>
+
+            <!-- The Card Held by Animal Hands -->
+            <div class="relative w-full bg-amber-50 border-4 border-amber-300 rounded-3xl p-6 shadow-2xl flex flex-col items-center justify-center text-center text-slate-900 min-h-[160px]">
+              
+              <!-- Animal Hands Overlay (Holding top of card) -->
+              <div class="absolute -top-3 flex justify-between w-28 px-2 z-20">
+                <div class="w-6 h-6 bg-amber-200 border-2 border-amber-400 rounded-full shadow-md"></div>
+                <div class="w-6 h-6 bg-amber-200 border-2 border-amber-400 rounded-full shadow-md"></div>
+              </div>
+
+              <!-- Animal Speech Bubble Hint -->
+              <span class="text-xs font-extrabold text-amber-800 bg-amber-200/80 px-3 py-1 rounded-full mb-2" id="animalSpeech">
+                "이 카드는 어느 쪽일까?"
+              </span>
+
+              <!-- Number Card Content -->
+              <span id="cardText" class="text-3xl md:text-4xl font-black text-slate-900 break-keep leading-tight font-mono py-1">
+                -
+              </span>
+
+              <div class="mt-2 text-slate-400 text-[10px] font-semibold">
+                좌우 방향키(◄ / ►) 또는 아래 버튼
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Touch/Click Action Buttons -->
+    <div class="w-full grid grid-cols-2 gap-4 mt-2 mb-2">
+      <button id="btnLeft" disabled class="py-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl font-black font-jua text-xl shadow-lg flex items-center justify-center gap-2 transition transform active:scale-95 border-b-4 border-blue-800">
+        <i class="fa-solid fa-arrow-left"></i>
+        <span id="btnLeftText">유리수</span>
+      </button>
+
+      <button id="btnRight" disabled class="py-4 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl font-black font-jua text-xl shadow-lg flex items-center justify-center gap-2 transition transform active:scale-95 border-b-4 border-rose-800">
+        <span id="btnRightText">무리수</span>
+        <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+  </main>
+
+  <!-- Footer Info -->
+  <footer class="w-full text-center py-2 text-xs text-slate-500 border-t border-slate-800/80 bg-slate-900">
+    중학교 수학 - 유리수와 무리수 동물 카드 분류 스피드 게임 (교사 대시보드 지원)
+  </footer>
+
+  <!-- Teacher Analytics Dashboard Modal -->
+  <div id="dashboardModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl max-w-3xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col">
+      
+      <!-- Modal Header -->
+      <div class="flex justify-between items-center pb-3 border-b border-slate-700 mb-4">
+        <div>
+          <h3 class="text-xl font-black font-jua text-amber-300 flex items-center gap-2">
+            <i class="fa-solid fa-chart-line text-amber-400"></i> 교사용 학습 분석 대시보드
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">학생들의 게임 참여 현황 및 개념별 오답 분석 리포트입니다.</p>
+        </div>
+        <button id="closeDashboardBtn" class="text-slate-400 hover:text-white p-2 text-xl">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="overflow-y-auto space-y-6 pr-1 flex-1 text-left">
+
+        <!-- Summary KPI Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="bg-slate-900/80 border border-slate-700 p-3 rounded-2xl text-center">
+            <span class="text-[11px] text-slate-400 font-semibold block mb-1">총 참여 학생</span>
+            <span id="kpiTotalStudents" class="text-2xl font-black font-jua text-cyan-400">0명</span>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700 p-3 rounded-2xl text-center">
+            <span class="text-[11px] text-slate-400 font-semibold block mb-1">평균 점수</span>
+            <span id="kpiAvgScore" class="text-2xl font-black font-jua text-emerald-400">0점</span>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700 p-3 rounded-2xl text-center">
+            <span class="text-[11px] text-slate-400 font-semibold block mb-1">평균 정답률</span>
+            <span id="kpiAvgAccuracy" class="text-2xl font-black font-jua text-amber-400">0%</span>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700 p-3 rounded-2xl text-center">
+            <span class="text-[11px] text-slate-400 font-semibold block mb-1">최고 점수</span>
+            <span id="kpiHighScore" class="text-2xl font-black font-jua text-purple-400">0점</span>
+          </div>
+        </div>
+
+        <!-- Section: Top Misunderstood Cards (Misconception Analysis) -->
+        <div class="bg-slate-900/70 border border-slate-700 rounded-2xl p-4">
+          <h4 class="text-sm font-bold text-rose-400 mb-2 flex items-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation"></i> 학생들이 가장 많이 틀린 개념 Top 5
+          </h4>
+          <div id="topErrorsList" class="space-y-2 text-xs">
+            <p class="text-slate-500 italic py-2 text-center">아직 제출된 학생 데이터가 없습니다.</p>
+          </div>
+        </div>
+
+        <!-- Section: Student Result Table -->
+        <div>
+          <h4 class="text-sm font-bold text-slate-200 mb-2 flex items-center gap-2">
+            <i class="fa-solid fa-users"></i> 학생별 제출 상세 기록
+          </h4>
+          <div class="overflow-x-auto rounded-xl border border-slate-700">
+            <table class="w-full text-xs text-left text-slate-300">
+              <thead class="bg-slate-900 text-slate-400 font-bold border-b border-slate-700">
+                <tr>
+                  <th class="p-3">학생/학번</th>
+                  <th class="p-3">점수</th>
+                  <th class="p-3">맞힌 개수</th>
+                  <th class="p-3">틀린 개수</th>
+                  <th class="p-3">최대 콤보</th>
+                  <th class="p-3">제출 시각</th>
+                </tr>
+              </thead>
+              <tbody id="studentRecordsTableBody" class="divide-y divide-slate-800">
+                <tr>
+                  <td colspan="6" class="p-4 text-center text-slate-500">데이터를 불러오는 중이거나 기록이 없습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div id="resultModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl max-w-md w-full p-6 text-center shadow-2xl relative animate-combo">
+      <div class="text-6xl mb-2">🏆</div>
+      <h2 class="text-3xl font-black font-jua text-amber-300 mb-1">게임 종료!</h2>
+      <p class="text-slate-400 text-xs mb-4">동물 친구들과 열심히 수학 문제를 풀었네요!</p>
+
+      <div class="bg-slate-900/70 rounded-2xl p-4 mb-4 space-y-3 border border-slate-700/50">
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">나의 순위</span>
+          <span id="finalRank" class="text-xl font-black font-jua text-amber-400">집계 중...</span>
+        </div>
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">최종 점수</span>
+          <span id="finalScore" class="text-2xl font-black font-jua text-cyan-400">0</span>
+        </div>
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">맞힌 정답 개수</span>
+          <span id="finalCorrect" class="text-base font-bold text-emerald-400">0개</span>
+        </div>
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">최대 연속 성공 (COMBO)</span>
+          <span id="finalMaxCombo" class="text-base font-bold text-amber-400">0 Combo</span>
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <button id="showRankFromModalBtn" class="w-1/2 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-black font-jua text-lg text-white shadow-lg transition">
+          🏆 랭킹 보기
+        </button>
+        <button id="restartBtn" class="w-1/2 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 rounded-2xl font-black font-jua text-lg text-white shadow-lg transform active:scale-95 transition">
+          다시 도전하기 🔄
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-time Leaderboard Modal -->
+  <div id="leaderboardModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl max-w-md w-full p-6 shadow-2xl relative max-h-[85vh] flex flex-col">
+      <div class="flex justify-between items-center pb-3 border-b border-slate-700 mb-4">
+        <h3 class="text-xl font-black font-jua text-amber-300 flex items-center gap-2">
+          <i class="fa-solid fa-trophy text-amber-400"></i> 명예의 전당 TOP 10
+        </h3>
+        <button id="closeLeaderboardBtn" class="text-slate-400 hover:text-white p-2 text-xl">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div id="leaderboardList" class="overflow-y-auto space-y-2.5 pr-1 flex-1">
+        <p class="text-slate-500 text-center py-6">랭킹 데이터를 불러오는 중입니다...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Editor Modal -->
+  <div id="editorModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl max-w-xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col">
+      <div class="flex justify-between items-center pb-3 border-b border-slate-700 mb-4">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-amber-400"></i> 단어 및 범주 설정
+        </h3>
+        <button id="closeEditorBtn" class="text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-xl"></i>
+        </button>
+      </div>
+
+      <div class="overflow-y-auto space-y-4 pr-1 flex-1 text-left text-sm">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-blue-400 mb-1">범주 A 이름 (왼쪽)</label>
+            <input type="text" id="inputCatA" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-blue-500" placeholder="예: 유리수">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-rose-400 mb-1">범주 B 이름 (오른쪽)</label>
+            <input type="text" id="inputCatB" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-rose-500" placeholder="예: 무리수">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">
+            범주 A 카드 목록 (줄바꿈 구분, 6개 이상)
+          </label>
+          <textarea id="inputListA" rows="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-200 font-mono focus:outline-none focus:border-blue-500" placeholder="카드를 한 줄에 하나씩 입력하세요"></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">
+            범주 B 카드 목록 (줄바꿈 구분, 6개 이상)
+          </label>
+          <textarea id="inputListB" rows="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-200 font-mono focus:outline-none focus:border-rose-500" placeholder="카드를 한 줄에 하나씩 입력하세요"></textarea>
+        </div>
+      </div>
+
+      <div class="pt-4 border-t border-slate-700 mt-4 flex gap-2">
+        <button id="resetDefaultBtn" class="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-semibold text-slate-300">
+          유리수/무리수 기본값
+        </button>
+        <button id="saveEditorBtn" class="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl font-black font-jua text-base">
+          설정 저장하기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Alert Box -->
+  <div id="alertBox" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-600 rounded-2xl p-5 max-w-xs w-full text-center shadow-xl">
+      <p id="alertMessage" class="text-sm font-bold text-slate-200 mb-4">경고 메시지</p>
+      <button id="alertCloseBtn" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-xs font-bold w-full">확인</button>
+    </div>
+  </div>
+
+  <!-- Teacher PIN Auth Modal -->
+  <div id="pinModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl max-w-xs w-full p-6 text-center shadow-2xl relative">
+      <div class="w-12 h-12 bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 rounded-2xl flex items-center justify-center mx-auto mb-3 text-xl">
+        <i class="fa-solid fa-user-shield"></i>
+      </div>
+      <h3 class="text-lg font-black font-jua text-white mb-1">교사 인증</h3>
+      <p class="text-xs text-slate-400 mb-4">교사 전용 대시보드 접속을 위해<br>비밀번호(PIN)를 입력하세요.</p>
+      
+      <input type="password" id="pinInput" maxlength="6" placeholder="비밀번호 입력 (기본: 1234)" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-600 rounded-xl text-center text-lg font-bold text-amber-300 tracking-widest focus:outline-none focus:border-indigo-400 mb-4">
+      
+      <div class="flex gap-2">
+        <button id="cancelPinBtn" class="w-1/2 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-300">취소</button>
+        <button id="submitPinBtn" class="w-1/2 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white">확인</button>
+      </div>
+      <p id="pinErrorMsg" class="text-[11px] text-rose-400 font-bold mt-2 hidden">비밀번호가 일치하지 않습니다.</p>
+    </div>
+  </div>
+
+  <script>
+    // --- Default Game Data (Middle School Math: Rational vs Irrational Numbers) ---
+    const DEFAULT_DATA = {
+      categoryA: "유리수",
+      categoryB: "무리수",
+      itemsA: [
+        "-3",
+        "0",
+        "0.75",
+        "1/3",
+        "0.333...",
+        "0.121212...",
+        "√4",
+        "-√9",
+        "√0.16",
+        "-5/2",
+        "1.5"
+      ],
+      itemsB: [
+        "π (원주율)",
+        "√2",
+        "√3",
+        "√5",
+        "1 + √3",
+        "0.101001000...",
+        "√0.1",
+        "-√7",
+        "2π",
+        "3 - √2"
+      ]
+    };
+
+    // Teacher PIN (Default: 1234)
+    const TEACHER_PIN = "1234";
+    let isTeacherMode = false;
+
+    // Animal Characters List with Speech Quotes
+    const ANIMALS = [
+      { emoji: "🐶", name: "강아지", quotes: ["내가 찾은 정답은?", "이 숫자 알아맞혀 봐!", "유리수일까 무리수일까?"] },
+      { emoji: "🐱", name: "고양이", quotes: ["야옹~ 이 숫자는 말이지...", "어느 쪽 상자에 넣을까?", "정답을 골라줘!"] },
+      { emoji: "🐻", name: "곰돌이", quotes: ["곰곰이 생각해보자!", "묵직한 이 숫자 카드는?", "쉽지 않을걸?"] },
+      { emoji: "🐰", name: "토끼", quotes: ["깡충! 이 카드는 어때?", "빨리 맞춰봐, 시간 간다!", "유리수? 무리수?"] },
+      { emoji: "🦊", name: "여우", quotes: ["헤헤, 내가 속임수를 썼나?", "똑똑한 친구라면 알겠지?", "정답을 맞혀봐!"] },
+      { emoji: "🐼", name: "판다", quotes: ["느긋하게 생각하면 보여!", "맛있는 대나무와 이 수!", "어느 쪽이게?"] },
+      { emoji: "🐯", name: "호랑이", quotes: ["어흥! 당당하게 풀어봐!", "무서운 숫자가 아니야!", "정답으로 가자!"] }
+    ];
+
+    // --- State Variables ---
+    let gameData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+    let cardDeck = [];
+    let currentCardIndex = 0;
+    
+    let timer = 60;
+    let timerInterval = null;
+    let isPlaying = false;
+
+    let score = 0;
+    let combo = 0;
+    let maxCombo = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+
+    let studentName = "";
+    let wrongCards = []; // Tracks wrong answers
+    let correctCards = []; // Tracks correct answers
+
+    // --- DOM Elements ---
+    const timerEl = document.getElementById('timer');
+    const scoreEl = document.getElementById('score');
+    const comboEl = document.getElementById('combo');
+    const comboLabelEl = document.getElementById('comboLabel');
+    
+    const catANameEl = document.getElementById('catAName');
+    const catBNameEl = document.getElementById('catBName');
+    const btnLeftText = document.getElementById('btnLeftText');
+    const btnRightText = document.getElementById('btnRightText');
+    
+    const zoneA = document.getElementById('zoneA');
+    const zoneB = document.getElementById('zoneB');
+
+    const gameCard = document.getElementById('gameCard');
+    const cardText = document.getElementById('cardText');
+    const animalAvatar = document.getElementById('animalAvatar');
+    const animalSpeech = document.getElementById('animalSpeech');
+    const startOverlay = document.getElementById('startOverlay');
+    const startBtn = document.getElementById('startBtn');
+    const studentNameInput = document.getElementById('studentNameInput');
+
+    const btnLeft = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+
+    const resultModal = document.getElementById('resultModal');
+    const finalScore = document.getElementById('finalScore');
+    const finalCorrect = document.getElementById('finalCorrect');
+    const finalMaxCombo = document.getElementById('finalMaxCombo');
+    const restartBtn = document.getElementById('restartBtn');
+
+    const editBtn = document.getElementById('editBtn');
+    const editorModal = document.getElementById('editorModal');
+    const closeEditorBtn = document.getElementById('closeEditorBtn');
+    const saveEditorBtn = document.getElementById('saveEditorBtn');
+    const resetDefaultBtn = document.getElementById('resetDefaultBtn');
+    const inputCatA = document.getElementById('inputCatA');
+    const inputCatB = document.getElementById('inputCatB');
+    const inputListA = document.getElementById('inputListA');
+    const inputListB = document.getElementById('inputListB');
+
+    const dashboardBtn = document.getElementById('dashboardBtn');
+    const dashboardModal = document.getElementById('dashboardModal');
+    const closeDashboardBtn = document.getElementById('closeDashboardBtn');
+
+    const pinModal = document.getElementById('pinModal');
+    const pinInput = document.getElementById('pinInput');
+    const submitPinBtn = document.getElementById('submitPinBtn');
+    const cancelPinBtn = document.getElementById('cancelPinBtn');
+    const pinErrorMsg = document.getElementById('pinErrorMsg');
+    const roleBadge = document.getElementById('roleBadge');
+
+    const leaderboardBtn = document.getElementById('leaderboardBtn');
+    const leaderboardModal = document.getElementById('leaderboardModal');
+    const closeLeaderboardBtn = document.getElementById('closeLeaderboardBtn');
+    const leaderboardList = document.getElementById('leaderboardList');
+    const showRankFromModalBtn = document.getElementById('showRankFromModalBtn');
+    const finalRank = document.getElementById('finalRank');
+
+    const alertBox = document.getElementById('alertBox');
+    const alertMessage = document.getElementById('alertMessage');
+    const alertCloseBtn = document.getElementById('alertCloseBtn');
+
+    // Store all records locally for quick sorting
+    window.allRecordsData = [];
+
+    function showAlert(msg) {
+      alertMessage.textContent = msg;
+      alertBox.classList.remove('hidden');
+    }
+
+    alertCloseBtn.addEventListener('click', () => {
+      alertBox.classList.add('hidden');
+    });
+
+    // Leaderboard Modal Handlers
+    leaderboardBtn.addEventListener('click', () => {
+      leaderboardModal.classList.remove('hidden');
+    });
+
+    closeLeaderboardBtn.addEventListener('click', () => {
+      leaderboardModal.classList.add('hidden');
+    });
+
+    showRankFromModalBtn.addEventListener('click', () => {
+      resultModal.classList.add('hidden');
+      leaderboardModal.classList.remove('hidden');
+    });
+
+    // Update Real-time Leaderboard UI
+    window.updateLeaderboard = function(records) {
+      if (!records || records.length === 0) {
+        leaderboardList.innerHTML = `<p class="text-slate-500 italic py-6 text-center">아직 등록된 랭킹 기록이 없습니다.<br>첫 번째 도전자가 되어보세요!</p>`;
+        return;
+      }
+
+      // Sort by Score DESC, then CorrectCount DESC, then MaxCombo DESC
+      const sorted = [...records].sort((a, b) => {
+        if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+        if ((b.correctCount || 0) !== (a.correctCount || 0)) return (b.correctCount || 0) - (a.correctCount || 0);
+        return (b.maxCombo || 0) - (a.maxCombo || 0);
+      });
+
+      const top10 = sorted.slice(0, 10);
+
+      leaderboardList.innerHTML = top10.map((r, idx) => {
+        let rankBadge = `<span class="w-7 h-7 bg-slate-700 text-slate-300 font-bold rounded-xl flex items-center justify-center text-xs">${idx + 1}</span>`;
+        let bgStyle = "bg-slate-900/70 border-slate-700/60";
+
+        if (idx === 0) {
+          rankBadge = `<span class="w-7 h-7 bg-amber-400 text-amber-950 font-black rounded-xl flex items-center justify-center text-sm shadow-md">🥇</span>`;
+          bgStyle = "bg-gradient-to-r from-amber-950/50 to-slate-900 border-amber-500/50";
+        } else if (idx === 1) {
+          rankBadge = `<span class="w-7 h-7 bg-slate-300 text-slate-950 font-black rounded-xl flex items-center justify-center text-sm shadow-md">🥈</span>`;
+          bgStyle = "bg-gradient-to-r from-slate-800/80 to-slate-900 border-slate-400/40";
+        } else if (idx === 2) {
+          rankBadge = `<span class="w-7 h-7 bg-amber-700 text-amber-100 font-black rounded-xl flex items-center justify-center text-sm shadow-md">🥉</span>`;
+          bgStyle = "bg-gradient-to-r from-amber-900/30 to-slate-900 border-amber-700/40";
+        }
+
+        return `
+          <div class="flex items-center justify-between p-3 rounded-2xl border ${bgStyle} transition hover:border-amber-400/40">
+            <div class="flex items-center gap-3">
+              ${rankBadge}
+              <div>
+                <span class="font-black text-white text-sm block leading-tight">${r.studentName || '무명'}</span>
+                <span class="text-[10px] text-slate-400">${r.correctCount || 0}개 성공 • 최고 ${r.maxCombo || 0}콤보</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="font-black font-jua text-lg text-cyan-400">${(r.score || 0).toLocaleString()}</span>
+              <span class="text-[10px] text-slate-400 font-bold">점</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    };
+
+    // Calculate My Rank after Game Over
+    function calculateMyRank(myScore, myCorrect, myCombo) {
+      if (!window.allRecordsData || window.allRecordsData.length === 0) return "1위";
+
+      const sorted = [...window.allRecordsData].sort((a, b) => {
+        if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+        if ((b.correctCount || 0) !== (a.correctCount || 0)) return (b.correctCount || 0) - (a.correctCount || 0);
+        return (b.maxCombo || 0) - (a.maxCombo || 0);
+      });
+
+      const myRankIndex = sorted.findIndex(r => 
+        (r.score || 0) <= myScore && (r.studentName === studentName)
+      );
+
+      if (myRankIndex === -1) return `${sorted.length + 1}위`;
+      return `${myRankIndex + 1}위 / ${sorted.length}명`;
+    }
+
+    // Check URL query parameters for Teacher Mode URL (?mode=teacher)
+    function checkUrlMode() {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('mode') === 'teacher') {
+        enableTeacherMode();
+        dashboardModal.classList.remove('hidden');
+      }
+    }
+
+    function enableTeacherMode() {
+      isTeacherMode = true;
+      roleBadge.classList.remove('hidden');
+      dashboardBtn.innerHTML = `<i class="fa-solid fa-chart-pie"></i> 교사 대시보드`;
+    }
+
+    // Dashboard Open Logic with Authentication Check
+    dashboardBtn.addEventListener('click', () => {
+      if (isTeacherMode) {
+        dashboardModal.classList.remove('hidden');
+      } else {
+        pinInput.value = '';
+        pinErrorMsg.classList.add('hidden');
+        pinModal.classList.remove('hidden');
+        pinInput.focus();
+      }
+    });
+
+    submitPinBtn.addEventListener('click', verifyPin);
+    pinInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') verifyPin();
+    });
+
+    function verifyPin() {
+      if (pinInput.value === TEACHER_PIN) {
+        enableTeacherMode();
+        pinModal.classList.add('hidden');
+        dashboardModal.classList.remove('hidden');
+      } else {
+        pinErrorMsg.classList.remove('hidden');
+      }
+    }
+
+    cancelPinBtn.addEventListener('click', () => {
+      pinModal.classList.add('hidden');
+    });
+
+    function shuffle(array) {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function prepareDeck() {
+      const deckA = gameData.itemsA.map(item => ({ text: item, category: 'A' }));
+      const deckB = gameData.itemsB.map(item => ({ text: item, category: 'B' }));
+      cardDeck = shuffle([...deckA, ...deckB]);
+      currentCardIndex = 0;
+    }
+
+    function updateUI() {
+      catANameEl.textContent = gameData.categoryA;
+      catBNameEl.textContent = gameData.categoryB;
+      btnLeftText.textContent = gameData.categoryA;
+      btnRightText.textContent = gameData.categoryB;
+    }
+
+    function startGame() {
+      const inputVal = studentNameInput.value.trim();
+      if (!inputVal) {
+        showAlert('학생 이름(또는 학번)을 입력해 주세요!');
+        return;
+      }
+      studentName = inputVal;
+
+      score = 0;
+      combo = 0;
+      maxCombo = 0;
+      correctCount = 0;
+      wrongCount = 0;
+      wrongCards = [];
+      correctCards = [];
+      timer = 60;
+      isPlaying = true;
+
+      scoreEl.textContent = '0';
+      comboEl.textContent = '0';
+      comboLabelEl.classList.add('hidden');
+      timerEl.textContent = timer;
+
+      prepareDeck();
+      
+      startOverlay.classList.add('hidden');
+      gameCard.classList.remove('hidden', 'swipe-left', 'swipe-right');
+      btnLeft.disabled = false;
+      btnRight.disabled = false;
+
+      showNextCard();
+
+      // Start countdown timer
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        timer--;
+        timerEl.textContent = timer;
+
+        if (timer <= 10) {
+          timerEl.classList.remove('text-emerald-400');
+          timerEl.classList.add('text-rose-500', 'animate-pulse');
+        } else {
+          timerEl.classList.remove('text-rose-500', 'animate-pulse');
+          timerEl.classList.add('text-emerald-400');
+        }
+
+        if (timer <= 0) {
+          endGame();
+        }
+      }, 1000);
+    }
+
+    function showNextCard() {
+      if (currentCardIndex >= cardDeck.length) {
+        prepareDeck();
+      }
+
+      const card = cardDeck[currentCardIndex];
+      cardText.textContent = card.text;
+
+      // Pick a random animal character for every card
+      const randomAnimal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+      const randomQuote = randomAnimal.quotes[Math.floor(Math.random() * randomAnimal.quotes.length)];
+
+      animalAvatar.textContent = randomAnimal.emoji;
+      animalSpeech.textContent = `"${randomQuote}"`;
+
+      gameCard.classList.remove('swipe-left', 'swipe-right');
+      gameCard.style.transform = 'none';
+      gameCard.style.opacity = '1';
+    }
+
+    function handleChoice(direction) {
+      if (!isPlaying) return;
+
+      const currentCard = cardDeck[currentCardIndex];
+      const targetCategory = direction === 'left' ? 'A' : 'B';
+      const isCorrect = currentCard.category === targetCategory;
+
+      gameCard.classList.add(direction === 'left' ? 'swipe-left' : 'swipe-right');
+
+      const activeZone = direction === 'left' ? zoneA : zoneB;
+      activeZone.classList.add('scale-105', isCorrect ? 'bg-emerald-900/40' : 'bg-rose-900/40');
+      setTimeout(() => {
+        activeZone.classList.remove('scale-105', 'bg-emerald-900/40', 'bg-rose-900/40');
+      }, 200);
+
+      if (isCorrect) {
+        correctCount++;
+        combo++;
+        if (combo > maxCombo) maxCombo = combo;
+        correctCards.push(currentCard.text);
+
+        // Base score: 100pt + Combo Bonus (+15pt per combo level)
+        const earnedScore = 100 + (combo > 1 ? (combo - 1) * 15 : 0);
+        score += earnedScore;
+
+        showFeedback(`+${earnedScore} 🎉`, 'text-emerald-400');
+      } else {
+        combo = 0;
+        wrongCount++;
+        wrongCards.push(currentCard.text);
+        showFeedback('아쉽다! 💦', 'text-rose-400');
+      }
+
+      scoreEl.textContent = score;
+      comboEl.textContent = combo;
+
+      if (combo > 1) {
+        comboLabelEl.classList.remove('hidden');
+        comboEl.parentElement.classList.add('animate-combo');
+        setTimeout(() => comboEl.parentElement.classList.remove('animate-combo'), 300);
+      } else {
+        comboLabelEl.classList.add('hidden');
+      }
+
+      currentCardIndex++;
+
+      setTimeout(() => {
+        showNextCard();
+      }, 150);
+    }
+
+    // Floating animation feedback
+    function showFeedback(text, colorClass) {
+      const el = document.createElement('div');
+      el.className = `absolute font-black font-jua text-3xl ${colorClass} feedback-pop pointer-events-none z-40 shadow-sm`;
+      el.textContent = text;
+      feedbackContainer.appendChild(el);
+
+      setTimeout(() => {
+        el.remove();
+      }, 600);
+    }
+
+    function endGame() {
+      isPlaying = false;
+      clearInterval(timerInterval);
+
+      btnLeft.disabled = true;
+      btnRight.disabled = true;
+
+      finalScore.textContent = score.toLocaleString();
+      finalCorrect.textContent = `${correctCount}개`;
+      finalMaxCombo.textContent = `${maxCombo} Combo`;
+
+      const recordObj = {
+        studentName: studentName,
+        score: score,
+        correctCount: correctCount,
+        wrongCount: wrongCount,
+        maxCombo: maxCombo,
+        wrongCards: wrongCards,
+        correctCards: correctCards
+      };
+
+      if (window.saveGameRecord) {
+        window.saveGameRecord(recordObj);
+      }
+
+      setTimeout(() => {
+        finalRank.textContent = calculateMyRank(score, correctCount, maxCombo);
+      }, 500);
+
+      resultModal.classList.remove('hidden');
+    }
+
+    // Update Teacher Dashboard with live Firestore records
+    window.updateTeacherDashboard = function(records) {
+      const kpiTotalStudents = document.getElementById('kpiTotalStudents');
+      const kpiAvgScore = document.getElementById('kpiAvgScore');
+      const kpiAvgAccuracy = document.getElementById('kpiAvgAccuracy');
+      const kpiHighScore = document.getElementById('kpiHighScore');
+      const topErrorsList = document.getElementById('topErrorsList');
+      const tableBody = document.getElementById('studentRecordsTableBody');
+
+      if (!records || records.length === 0) {
+        kpiTotalStudents.textContent = '0명';
+        kpiAvgScore.textContent = '0점';
+        kpiAvgAccuracy.textContent = '0%';
+        kpiHighScore.textContent = '0점';
+        topErrorsList.innerHTML = `<p class="text-slate-500 italic py-2 text-center">아직 제출된 학생 데이터가 없습니다.</p>`;
+        tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500">제출된 데이터가 없습니다.</td></tr>`;
+        return;
+      }
+
+      // Calculate KPI Stats
+      const totalCount = records.length;
+      const totalScoreSum = records.reduce((acc, r) => acc + (r.score || 0), 0);
+      const avgScore = Math.round(totalScoreSum / totalCount);
+      const highScore = Math.max(...records.map(r => r.score || 0));
+
+      let totalAnswersSum = 0;
+      let totalCorrectSum = 0;
+      const errorCounts = {};
+
+      records.forEach(r => {
+        const corrects = r.correctCount || 0;
+        const wrongs = r.wrongCount || 0;
+        totalCorrectSum += corrects;
+        totalAnswersSum += (corrects + wrongs);
+
+        if (r.wrongCards && Array.isArray(r.wrongCards)) {
+          r.wrongCards.forEach(card => {
+            errorCounts[card] = (errorCounts[card] || 0) + 1;
+          });
+        }
+      });
+
+      const avgAccuracy = totalAnswersSum > 0 ? Math.round((totalCorrectSum / totalAnswersSum) * 100) : 0;
+
+      kpiTotalStudents.textContent = `${totalCount}명`;
+      kpiAvgScore.textContent = `${avgScore.toLocaleString()}점`;
+      kpiAvgAccuracy.textContent = `${avgAccuracy}%`;
+      kpiHighScore.textContent = `${highScore.toLocaleString()}점`;
+
+      // Render Top Error Concepts
+      const sortedErrors = Object.entries(errorCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+
+      if (sortedErrors.length === 0) {
+        topErrorsList.innerHTML = `<p class="text-slate-400 py-1">👏 오답이 등록된 카드가 없습니다!</p>`;
+      } else {
+        topErrorsList.innerHTML = sortedErrors.map(([cardText, count], idx) => {
+          const pct = Math.round((count / totalCount) * 100);
+          return `
+            <div class="flex items-center justify-between bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+              <div class="flex items-center gap-2">
+                <span class="w-5 h-5 bg-rose-500/20 text-rose-400 font-bold flex items-center justify-center rounded-lg text-[10px]">${idx + 1}</span>
+                <span class="font-mono font-bold text-slate-200 text-sm">'${cardText}'</span>
+              </div>
+              <span class="text-rose-400 font-bold">${count}회 오답 (${pct}%의 학생)</span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Render Student Records Table
+      const sortedRecords = [...records].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      tableBody.innerHTML = sortedRecords.map(r => {
+        const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+        return `
+          <tr class="hover:bg-slate-700/30 transition">
+            <td class="p-3 font-bold text-white">${r.studentName || '무명'}</td>
+            <td class="p-3 font-bold text-cyan-400 font-jua text-sm">${(r.score || 0).toLocaleString()}</td>
+            <td class="p-3 text-emerald-400 font-semibold">${r.correctCount || 0}개</td>
+            <td class="p-3 text-rose-400 font-semibold">${r.wrongCount || 0}개</td>
+            <td class="p-3 text-amber-400 font-semibold">${r.maxCombo || 0} C</td>
+            <td class="p-3 text-slate-400 text-[10px]">${dateStr}</td>
+          </tr>
+        `;
+      }).join('');
+    };
+
+    // Keyboard Input Listeners (Left: ArrowLeft, Right: ArrowRight)
+    window.addEventListener('keydown', (e) => {
+      if (!isPlaying) return;
+
+      if (e.key === 'ArrowLeft') {
+        handleChoice('left');
+      } else if (e.key === 'ArrowRight') {
+        handleChoice('right');
+      }
+    });
+
+    // Touch / Click Button Listeners
+    btnLeft.addEventListener('click', () => handleChoice('left'));
+    btnRight.addEventListener('click', () => handleChoice('right'));
+
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', () => {
+      resultModal.classList.add('hidden');
+      startGame();
+    });
+
+    // Dashboard Modal Handlers
+    dashboardBtn.addEventListener('click', () => {
+      dashboardModal.classList.remove('hidden');
+    });
+
+    closeDashboardBtn.addEventListener('click', () => {
+      dashboardModal.classList.add('hidden');
+    });
+
+    // Editor Modal Event Handlers
+    editBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        clearInterval(timerInterval);
+        isPlaying = false;
+      }
+
+      inputCatA.value = gameData.categoryA;
+      inputCatB.value = gameData.categoryB;
+      inputListA.value = gameData.itemsA.join('\n');
+      inputListB.value = gameData.itemsB.join('\n');
+
+      editorModal.classList.remove('hidden');
+    });
+
+    closeEditorBtn.addEventListener('click', () => {
+      editorModal.classList.add('hidden');
+    });
+
+    resetDefaultBtn.addEventListener('click', () => {
+      inputCatA.value = DEFAULT_DATA.categoryA;
+      inputCatB.value = DEFAULT_DATA.categoryB;
+      inputListA.value = DEFAULT_DATA.itemsA.join('\n');
+      inputListB.value = DEFAULT_DATA.itemsB.join('\n');
+    });
+
+    saveEditorBtn.addEventListener('click', () => {
+      const itemsA = inputListA.value.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+      const itemsB = inputListB.value.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+      if (!inputCatA.value.trim() || !inputCatB.value.trim()) {
+        showAlert('범주 이름을 모두 입력해 주세요.');
+        return;
+      }
+
+      if (itemsA.length < 3 || itemsB.length < 3) {
+        showAlert('각 범주별로 최소 3개 이상의 단어/개념을 입력해 주세요.');
+        return;
+      }
+
+      gameData = {
+        categoryA: inputCatA.value.trim(),
+        categoryB: inputCatB.value.trim(),
+        itemsA: itemsA,
+        itemsB: itemsB
+      };
+
+      updateUI();
+      editorModal.classList.add('hidden');
+      
+      gameCard.classList.add('hidden');
+      startOverlay.classList.remove('hidden');
+      btnLeft.disabled = true;
+      btnRight.disabled = true;
+    });
+
+    // Initial setup on window load
+    window.onload = function() {
+      updateUI();
+      checkUrlMode();
+    };
+  </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>동물 친구들과 함께하는 유리수 vs 무리수 스피드 게임</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Font (Noto Sans KR) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;600;800;900&display=swap" rel="stylesheet">
+  
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
     // Global Firebase setup variables
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'math-sorting-game';
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
